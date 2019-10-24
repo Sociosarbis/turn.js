@@ -7,11 +7,19 @@ function isJq(el) {
 }
 
 function isArrayLike(list) {
-  return list && ('length' in list)
+  return !isUndef(list) && ('length' in list)
 }
 
 function isNumber(num) {
   return typeof num === 'number' && !isNaN(num)
+}
+
+function isUndef(obj) {
+  return obj === null || obj === undefined
+}
+
+const styleUnits = {
+  px: ['width', 'height', 'left', 'top']
 }
 
 class JqueryAlternate {
@@ -74,7 +82,7 @@ class JqueryAlternate {
         switch (key) {
           case 'css':
             Object.keys(attrs[key]).forEach(name => {
-              ele.style[name] = this.intToPx(attrs[key][name])
+              ele.style[name] = ~styleUnits.px.indexOf(name) ? this.intToPx(attrs[key][name]) : attrs[key][name]
             })
             break
           default:
@@ -85,10 +93,53 @@ class JqueryAlternate {
     return this
   }
 
+  _getAttr(attr) {
+    if (this.length) {
+      return this._first().getAttribute(attr)
+    }
+  }
+
+  attr(options, value) {
+    if (options) {
+      if (typeof options === 'object') {
+        this._setAttrs(options)
+      } else if (typeof options === 'string') {
+        if (value) {
+          this._setAttrs({ [options]: value })
+        } else this._getAttr(options)
+      }
+    }
+  }
+
   data(...args) {
     if (args.length) {
+      const data = this._getData()
+      if (typeof args[0] === 'string') {
+        if (args.length > 1) {
+          if (isUndef(data)) data = {}
+          data[args[0]] = args[1]
+          return this._setData(data)
+        }
+        else return data && data[args[0]]
+      }
       return this._setData(args[0])
     } else return this._getData()
+  }
+
+  removeData(name) {
+    let attrGetter = name
+    if (!isArrayLike(name)) attrGetter = [name]
+    if (attrGetter.length) {
+      let data = this._getData()
+      for (let i = 0;i < attrGetter.length - 1;i++) {
+        if (data) data = data[attrGetter[i]]
+        else break
+      }
+      if (data) {
+        delete data[attrGetter.length - 1]
+      }
+    }
+    return this
   }
 
   _setData(value) {
@@ -239,11 +290,13 @@ class JqueryAlternate {
     this._mapElement((ele) => {
       let cur = ele
       let _$event = typeof eventName === 'string' ? new JqueryEvent(eventName) : _event
+      _$event.target = ele
       while (!_$event.isPropagationStopped() && cur) {
         const eventMap = cur._$eventMap
         if (eventMap && eventMap[_$event.type]) {
           let _args = args
           if (args.length === 1) _args = [...args[0]]
+          _$event.target.currentTarget = cur
           eventMap[_$event.type].forEach(handler => handler.call(cur, _$event, ..._args))
         }
         cur = cur.parentElement
@@ -266,6 +319,11 @@ class JqueryAlternate {
       ele.classList.remove(...clses)
     })
     return this
+  }
+
+  hasClass(className) {
+    if (!this.length) return false
+    return this._first().classList.contains(className) 
   }
 
   offset() {
@@ -335,7 +393,22 @@ class JqueryEvent {
 
 Object.assign($, {
   extend(...args) {
-    return Object.assign(...args)
+    if (args.length) {
+      const target = args[0]
+      if (target) {
+        for (let i = 1;i < args.length;i++) {
+          if (!isUndef(args[i]) && !isArrayLike(args[i])) {
+            Object.keys(args[i]).forEach((key) => {
+              if (!isUndef(args[i][key]) && typeof args[i][key] === 'object' && !isArrayLike(args[i][key])) {
+                if (typeof target[key] !== 'object' || isUndef(args[i][key])) target[key] = {}
+                $.extend(target[key], args[i][key])
+              } else target[key] = args[i][key]
+            })
+          }
+        }
+      }
+      return target
+    }
   },
   parseHTML(str) {
     const div = document.createElement('div')
@@ -343,6 +416,9 @@ Object.assign($, {
     return div.children
   }, inArray(value, arr) {
     return arr.indexOf(value)
+  },
+  proxy(func, context) {
+    return func.bind(context)
   },
   fn: JqueryAlternate.prototype,
   Event(...args) {
